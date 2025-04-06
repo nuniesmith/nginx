@@ -1,4 +1,5 @@
 services:
+  # Nginx web server
   nginx:
     container_name: nginx_app
     image: nuniesmith/nginx:latest
@@ -10,9 +11,36 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    volumes:
+      - ./config:/etc/nginx/config:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    networks:
+      - honeybun-network
+
+  # GitHub watcher service
+  github-watcher:
+    container_name: github-watcher
+    image: nuniesmith/github-watcher:latest
+    build:
+      context: .
+      dockerfile: ./docker/app/Dockerfile
+    environment:
+      - REPO_URL=https://github.com/nuniesmith/nginx.git
+      - BRANCH=main
+      - WATCH_INTERVAL=300
+      - NGINX_CONTAINER_NAME=nginx_app
+      - CONFIG_DIR=/app/config
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    networks:
+      - honeybun-network
+
+networks:
+  honeybun-network:
+    driver: bridge
