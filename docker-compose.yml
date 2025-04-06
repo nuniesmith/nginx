@@ -6,18 +6,24 @@ services:
     build:
       context: .
       dockerfile: ./docker/nginx/Dockerfile
+      args:
+        SERVICE_NAME: honeybun
+        APP_VERSION: 1.0.0
+        APP_ENV: ${APP_ENV:-development}
     environment:
       TZ: "America/New_York"
+      ENABLE_HEALTHCHECK: "true"
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./config:/etc/nginx/config:ro
+      - nginx_www_data:/var/www/html
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 5s
     restart: unless-stopped
     networks:
       - honeybun-network
@@ -35,6 +41,16 @@ services:
       - WATCH_INTERVAL=300
       - NGINX_CONTAINER_NAME=nginx_app
       - CONFIG_DIR=/app/config
+      - USE_DOCKER_COMPOSE=true
+      - VERBOSE=true
+      - AUTO_FIX=true
+      - FIX_PERMISSIONS=true
+      - MONITOR_LOGS=true
+      - NGINX_USER=nginx 
+      - NGINX_GROUP=nginx
+      - WEB_ROOT=/var/www/html
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     depends_on:
       - nginx
@@ -44,3 +60,6 @@ services:
 networks:
   honeybun-network:
     driver: bridge
+
+volumes:
+  nginx_www_data:
