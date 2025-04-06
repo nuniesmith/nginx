@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Honeybun Dashboard</title>
+    <style>
+        :root {
+            --primary-color: #3a86ff;
+            --secondary-color: #8338ec;
+            --accent-color: #ff006e;
+            --background-color: #f8f9fa;
+            --card-color: #ffffff;
+            --text-color: #212529;
+            --border-radius: 8px;
+            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Style content - abbreviated for clarity */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        /* Rest of CSS styles... */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Honeybun Network Dashboard</h1>
+            <p class="subtitle">Your home services at a glance</p>
+        </header>
+        
+        <main id="app">
+            <!-- Service categories will be dynamically inserted here -->
+        </main>
+        
+        <footer>
+            <p>&copy; 2025 Honeybun Network | Last updated: <span id="last-updated"></span></p>
+        </footer>
+    </div>
+    
+    <script>
+        // Service configuration with all your services
+        const services = {
+            media: {
+                title: "Media Services",
+                items: [
+                    { name: "Emby", url: "http://emby.honeybun.local", description: "Media server for movies and TV shows" },
+                    // More services...
+                ]
+            },
+            // More categories...
+        };
+        
+        // Function to render the services
+        function renderServices() {
+            // JavaScript functionality...
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', renderServices);
+    </script>
+</body>
+</html>
