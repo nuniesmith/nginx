@@ -4,7 +4,7 @@ DOCKERHUB_USERNAME="nuniesmith"
 DOCKERHUB_REPOSITORY="nginx"
 
 # --- System Paths ---
-NGINX_DOCKERFILE_PATH=./docker/nginx/Dockerfile
+NGINX_DOCKERFILE_PATH=./docker/Dockerfile
 
 # List of services and their Dockerfile paths
 declare -A services=(

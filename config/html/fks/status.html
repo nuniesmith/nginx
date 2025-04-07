@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="FKS Trading Platform status page - check the availability of gold trading applications and services">
+    <title>FKS Trading Platform Status</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📈</text></svg>">
+    <style>
+        :root {
+            --gold-color: #FFD700;
+            --dark-gold: #B8860B;
+            --text-color: #333;
+            --bg-color: #f9f9f9;
+            --card-bg: #ffffff;
+            --border-color: #ddd;
+            --success-color: #4CAF50;
+            --warning-color: #FF9800;
+            --error-color: #F44336;
+            --unknown-color: #9E9E9E;
+        }
+
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --text-color: #f0f0f0;
+                --bg-color: #121212;
+                --card-bg: #1e1e1e;
+                --border-color: #333;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        h1, h2, h3 {
+            color: var(--text-color);
+            border-bottom: 2px solid var(--gold-color);
+            padding-bottom: 8px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 2rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 3px rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: var(--gold-color);
+            color: #333;
+            font-weight: bold;
+        }
+
+        tr:hover {
+            background-color: rgba(255, 215, 0, 0.1);
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .status::before {
+            content: "";
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .online {
+            background-color: var(--success-color);
+        }
+
+        .online::before {
+            background-color: #fff;
+            animation: pulse 1.5s infinite;
+        }
+
+        .offline {
+            background-color: var(--error-color);
+        }
+
+        .unknown {
+            background-color: var(--unknown-color);
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.5;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.2);
+            }
+            100% {
+                opacity: 0.5;
+                transform: scale(1);
+            }
+        }
+
+        .description {
+            max-width: 400px;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .logo img, .logo svg {
+            margin-right: 10px;
+            height: 2rem;
+        }
+
+        .gold {
+            color: var(--gold-color);
+        }
+
+        footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.9rem;
+            color: #666;
+            text-align: center;
+        }
+
+        a {
+            color: var(--dark-gold);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        a:hover {
+            text-decoration: underline;
+            color: var(--gold-color);
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+
+        .feature-item {
+            display: flex;
+            flex-direction: column;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-item h3 {
+            margin: 0 0 10px 0;
+            padding: 0;
+            border: none;
+            font-size: 1.1rem;
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .last-updated {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 10px;
+            text-align: right;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            
+            .description {
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="card">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 9L12 2L21 9V20H3V9Z" stroke="#FFD700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M9 20V12H15V20" stroke="#FFD700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span><span class="gold">BT</span>Gold Trading Platform</span>
+            </div>
+            <h1>System Status</h1>
+            <p>This is the status page for the FKS Trading platform. Check service availability and platform information below.</p>
+        </header>
+
+        <section class="card" id="services-section">
+            <h2>Services Status</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Path</th>
+                        <th>Status</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Gold Trading App</td>
+                        <td><a href="/goldtrading/">/goldtrading/</a></td>
+                        <td><span class="status" id="status-goldtrading">Checking...</span></td>
+                        <td class="description">Main gold trading strategy backtesting and optimization application</td>
+                    </tr>
+                    <tr>
+                        <td>API</td>
+                        <td><a href="/api/">/api/</a></td>
+                        <td><span class="status" id="status-api">Checking...</span></td>
+                        <td class="description">REST API for gold trading data and strategy access</td>
+                    </tr>
+                    <tr>
+                        <td>Health Endpoint</td>
+                        <td><a href="/health">/health</a></td>
+                        <td><span class="status" id="status-health">Checking...</span></td>
+                        <td class="description">System health monitoring endpoint</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="last-updated">Last checked: <span id="last-checked">Just now</span></div>
+        </section>
+
+        <section class="card">
+            <h2>Platform Features</h2>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <div class="feature-icon">📊</div>
+                    <h3>Backtesting Engine</h3>
+                    <p>Test trading strategies against historical gold price data</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">⚙️</div>
+                    <h3>Strategy Optimization</h3>
+                    <p>Parameter optimization using Optuna</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Walk-Forward Analysis</h3>
+                    <p>Test strategy robustness across different market periods</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Risk Management</h3>
+                    <p>Position sizing, partial take profits, and trailing stops</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">📈</div>
+                    <h3>Interactive Visualization</h3>
+                    <p>Real-time equity curves and performance metrics</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔌</div>
+                    <h3>API Access</h3>
+                    <p>Programmatic access to all trading functionality</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>System Details</h2>
+            <p>
+                The FKS Trading Platform is a containerized application running in Docker. The platform provides 
+                comprehensive tools for backtesting and optimizing gold trading strategies with high performance 
+                and reliability.
+            </p>
+            <br>
+            <p>
+                Built with Python, FastAPI, NiceGUI, and modern data science libraries, the platform offers 
+                a seamless experience for traders and analysts working with gold market data.
+            </p>
+        </section>
+    </div>
+
+    <footer>
+        <p>FKS Trading Systems © 2025-<span id="current-year">2025</span> | For more information or support, contact your system administrator.</p>
+    </footer>
+
+    <script>
+        // Update current year
+        document.getElementById('current-year').textContent = new Date().getFullYear();
+
+        // Function to check service status
+        async function checkServiceStatus() {
+            const services = [
+                { id: 'status-goldtrading', url: '/goldtrading/' },
+                { id: 'status-api', url: '/api/' },
+                { id: 'status-health', url: '/health' }
+            ];
+
+            for (const service of services) {
+                const statusElement = document.getElementById(service.id);
+                statusElement.textContent = 'Checking...';
+                statusElement.className = 'status unknown';
+
+                try {
+                    const startTime = Date.now();
+                    const response = await fetch(service.url, {
+                        method: 'HEAD',
+                        cache: 'no-store',
+                        timeout: 5000
+                    });
+                    const responseTime = Date.now() - startTime;
+
+                    if (response.ok) {
+                        statusElement.textContent = `Online (${responseTime}ms)`;
+                        statusElement.className = 'status online';
+                    } else {
+                        statusElement.textContent = `Error (${response.status})`;
+                        statusElement.className = 'status offline';
+                    }
+                } catch (error) {
+                    statusElement.textContent = 'Offline';
+                    statusElement.className = 'status offline';
+                }
+            }
+
+            // Update last checked time
+            document.getElementById('last-checked').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Check status on page load
+        checkServiceStatus();
+
+        // Set up periodic status checks
+        setInterval(checkServiceStatus, 60000); // Check every minute
+    </script>
+</body>
+</html>
