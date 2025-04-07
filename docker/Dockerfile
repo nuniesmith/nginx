@@ -52,8 +52,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a dedicated non-root user for Nginx
-RUN addgroup --system --gid 1001 nginx-app && \
-    adduser --system --disabled-login --ingroup nginx-app --no-create-home --home /nonexistent --gecos "nginx-app user" --shell /bin/false --uid 1001 nginx-app
+RUN addgroup --system --gid 1001 nginx && \
+    adduser --system --disabled-login --ingroup nginx --no-create-home --home /nonexistent --gecos "nginx user" --shell /bin/false --uid 1001 nginx
 
 # Create directory structure with proper permissions
 RUN mkdir -p /var/cache/nginx \
@@ -92,7 +92,7 @@ RUN ln -sf /usr/share/nginx/html/honeybun.local /config/html/honeybun && \
 
 # Set proper permissions for Nginx directories
 RUN touch /var/run/nginx.pid && \
-    chown -R nginx-app:nginx-app /var/run/nginx.pid /var/cache/nginx /var/log/nginx /config /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /var/log/nginx /config /usr/share/nginx/html && \
     chmod -R 755 /usr/share/nginx/html /etc/nginx /config
 
 # Add healthcheck that verifies both domains
