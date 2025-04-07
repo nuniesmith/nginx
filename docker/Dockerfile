@@ -1,12 +1,12 @@
 ###############################
 # Stage 1: Builder
 ###############################
-FROM node:16-alpine AS builder
+FROM node:latest AS builder
 
 WORKDIR /build
 
 # Copy HTML and static assets
-COPY ./config/html /build/html
+#COPY ./config/html /build/html
 
 # If you need to process your HTML/CSS/JS files, you can do it here
 # For example, using a simple npm package to minify HTML files:
@@ -14,14 +14,14 @@ COPY ./config/html /build/html
 #     find /build/html -name "*.html" -exec html-minifier --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype {} -o {} \;
 
 # Copy nginx config files to verify them in the build stage
-COPY ./config/nginx /build/nginx
+#COPY ./config/nginx /build/nginx
 
 # Optionally verify nginx config
 FROM nginx:latest AS config-check
-COPY --from=builder /build/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY --from=builder /build/nginx/conf.d /etc/nginx/conf.d
-RUN mkdir -p /etc/nginx/includes
-COPY --from=builder /build/nginx/includes /etc/nginx/includes
+#COPY --from=builder /build/nginx/nginx.conf /etc/nginx/nginx.conf
+#COPY --from=builder /build/nginx/conf.d /etc/nginx/conf.d
+#RUN mkdir -p /etc/nginx/includes
+#COPY --from=builder /build/nginx/includes /etc/nginx/includes
 RUN nginx -t
 
 ###############################
@@ -51,12 +51,12 @@ RUN mkdir -p /var/cache/nginx /var/log/nginx /etc/nginx/includes && \
     chown -R nginx-app:nginx-app /var/cache/nginx /var/log/nginx
 
 # Copy the HTML files from builder stage
-COPY --from=builder --chown=nginx-app:nginx-app /build/html /usr/share/nginx/html
+#COPY --from=builder --chown=nginx-app:nginx-app /build/html /usr/share/nginx/html
 
 # Copy the Nginx configuration files from builder stage
-COPY --from=builder --chown=nginx-app:nginx-app /build/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY --from=builder --chown=nginx-app:nginx-app /build/nginx/conf.d /etc/nginx/conf.d
-COPY --from=builder --chown=nginx-app:nginx-app /build/nginx/includes /etc/nginx/includes
+#COPY --from=builder --chown=nginx-app:nginx-app /build/nginx/nginx.conf /etc/nginx/nginx.conf
+#COPY --from=builder --chown=nginx-app:nginx-app /build/nginx/conf.d /etc/nginx/conf.d
+#COPY --from=builder --chown=nginx-app:nginx-app /build/nginx/includes /etc/nginx/includes
 
 # Set proper permissions for Nginx directories
 RUN chmod -R 755 /usr/share/nginx/html && \
