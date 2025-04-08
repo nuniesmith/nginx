@@ -180,7 +180,7 @@ RUN chmod -R 777 /usr/share/nginx/html
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl --fail http://localhost/health || exit 1
 
-# Setup entrypoint script that doesn't try to change permissions
+# Setup simplified entrypoint script without the problematic sed commands
 COPY --chown=root:root <<-"EOF" /entrypoint.sh
 #!/bin/sh
 set -e
@@ -188,12 +188,6 @@ set -e
 # Display all config files for debugging
 echo "Nginx configuration files:"
 ls -la /etc/nginx/conf.d/
-
-# Fix any syntax issues in config files
-echo "Fixing any syntax issues in configuration files..."
-find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}#/}\n#/g' {} \; || echo "Warning: Could not fix syntax in configuration files, continuing anyway"
-find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/server {/server {\n/g' {} \; || echo "Warning: Could not fix syntax in configuration files, continuing anyway"
-find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}/}\n/g' {} \; || echo "Warning: Could not fix syntax in configuration files, continuing anyway"
 
 # Test the configuration
 echo "Testing Nginx configuration..."
