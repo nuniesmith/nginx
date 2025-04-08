@@ -1,12 +1,81 @@
 ###############################
-# Stage 1: Config Check & Build
+# Stage 1: Build Nginx from source
 ###############################
-FROM nginx:latest AS builder
+FROM alpine:latest AS builder
 
-# Install necessary tools for config checking
-RUN apt-get update && apt-get install -y \
+# Nginx version
+ARG NGINX_VERSION=1.26.0
+ARG NGINX_GPG_KEYS=13C82A63B603576156E30A4EA0EA981B66B0D967
+
+# Install build dependencies
+RUN apk add --no-cache \
+    gcc \
+    libc-dev \
+    make \
+    openssl-dev \
+    pcre-dev \
+    zlib-dev \
+    linux-headers \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    gnupg \
+    libxslt-dev \
+    gd-dev \
+    perl-dev
+
+# Download and verify Nginx source
+WORKDIR /src
+RUN wget "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" && \
+    wget "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz.asc" && \
+    mkdir -p /root/.gnupg && \
+    gpg --keyserver keyserver.ubuntu.com --recv-keys "$NGINX_GPG_KEYS" && \
+    gpg --verify nginx-${NGINX_VERSION}.tar.gz.asc && \
+    tar -zxvf nginx-${NGINX_VERSION}.tar.gz
+
+# Configure and compile Nginx with desired modules
+WORKDIR /src/nginx-${NGINX_VERSION}
+RUN ./configure \
+    --prefix=/etc/nginx \
+    --sbin-path=/usr/sbin/nginx \
+    --modules-path=/usr/lib/nginx/modules \
+    --conf-path=/etc/nginx/nginx.conf \
+    --error-log-path=/var/log/nginx/error.log \
+    --http-log-path=/var/log/nginx/access.log \
+    --pid-path=/var/run/nginx.pid \
+    --lock-path=/var/run/nginx.lock \
+    --http-client-body-temp-path=/var/cache/nginx/client_temp \
+    --http-proxy-temp-path=/var/cache/nginx/proxy_temp \
+    --http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp \
+    --http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp \
+    --http-scgi-temp-path=/var/cache/nginx/scgi_temp \
+    --with-perl_modules_path=/usr/lib/perl5/vendor_perl \
+    --user=nginx \
+    --group=nginx \
+    --with-compat \
+    --with-file-aio \
+    --with-threads \
+    --with-http_addition_module \
+    --with-http_auth_request_module \
+    --with-http_dav_module \
+    --with-http_flv_module \
+    --with-http_gunzip_module \
+    --with-http_gzip_static_module \
+    --with-http_mp4_module \
+    --with-http_random_index_module \
+    --with-http_realip_module \
+    --with-http_secure_link_module \
+    --with-http_slice_module \
+    --with-http_ssl_module \
+    --with-http_stub_status_module \
+    --with-http_sub_module \
+    --with-http_v2_module \
+    --with-mail \
+    --with-mail_ssl_module \
+    --with-stream \
+    --with-stream_realip_module \
+    --with-stream_ssl_module \
+    --with-stream_ssl_preread_module && \
+    make -j$(nproc) && \
+    make install
 
 # Create test directory for verifying config
 WORKDIR /build
@@ -24,13 +93,17 @@ COPY ./config/html/fks /build/html/fks
 COPY ./config/nginx/mime.types.conf /etc/nginx/mime.types.conf
 COPY ./config/nginx/maps.conf /etc/nginx/maps.conf
 
+# Create empty default.conf if it doesn't exist
+RUN mkdir -p /build/conf.d && \
+    touch /build/conf.d/default.conf
+
 # Test nginx config
 RUN nginx -c /build/nginx.conf -t
 
 ###############################
 # Stage 2: Runtime
 ###############################
-FROM nginx:latest AS runtime
+FROM alpine:latest AS runtime
 
 # Build arguments
 ARG SERVICE_PORT=80
@@ -44,21 +117,26 @@ ENV SERVICE_NAME=${SERVICE_NAME} \
     APP_VERSION=${APP_VERSION} \
     APP_ENV=${APP_ENV}
 
-# Install necessary tools with proper cleanup
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
     curl \
     inotify-tools \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    pcre \
+    libssl3 \
+    libgcc
 
 # Create a dedicated non-root user for Nginx
-RUN addgroup --system --gid 1001 nginx-app && \
-    adduser --system --disabled-login --ingroup nginx-app --no-create-home --home /nonexistent --gecos "nginx-app user" --shell /bin/false --uid 1001 nginx-app
+RUN addgroup -S nginx && \
+    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx -u 101 nginx
 
-# Create directory structure with proper permissions
+# Create required directories with correct permissions for read-only filesystem
 RUN mkdir -p /var/cache/nginx \
     /var/log/nginx \
     /etc/nginx/includes \
+    /etc/nginx/conf.d \
+    /run/nginx \
     /usr/share/nginx/html/health \
     /usr/share/nginx/html/honeybun.local/health \
     /usr/share/nginx/html/fks.local/health \
@@ -67,7 +145,13 @@ RUN mkdir -p /var/cache/nginx \
     /config/html/honeybun \
     /config/html/fks \
     /config/html/metrics \
-    /config/html/db
+    /config/html/db \
+    /tmp/nginx
+
+# Copy compiled Nginx binary and libraries from builder
+COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
+COPY --from=builder /etc/nginx/modules/ /etc/nginx/modules/
+COPY --from=builder /etc/nginx/mime.types /etc/nginx/mime.types
 
 # Copy configurations from the builder stage
 COPY --from=builder /build/nginx.conf /etc/nginx/nginx.conf
@@ -75,6 +159,9 @@ COPY --from=builder /build/maps.conf /etc/nginx/maps.conf
 COPY --from=builder /build/conf.d/ /etc/nginx/conf.d/
 COPY --from=builder /build/includes/ /etc/nginx/includes/
 COPY --from=builder /build/mime.types.conf /etc/nginx/mime.types.conf
+
+# Create empty default.conf if it doesn't exist
+RUN touch /etc/nginx/conf.d/default.conf
 
 # Copy website content from builder stage
 COPY --from=builder /build/html/honeybun/ /usr/share/nginx/html/honeybun.local/
@@ -90,9 +177,8 @@ RUN echo "OK" > /usr/share/nginx/html/honeybun.local/health/index.html && \
 RUN ln -sf /usr/share/nginx/html/honeybun.local /config/html/honeybun && \
     ln -sf /usr/share/nginx/html/fks.local /config/html/fks
 
-# Set proper permissions for Nginx directories
-RUN touch /var/run/nginx.pid && \
-    chown -R nginx-app:nginx-app /var/run/nginx.pid /var/cache/nginx /var/log/nginx /config /usr/share/nginx/html && \
+# Configure for read-only filesystem with writable areas
+RUN chown -R nginx-app:nginx-app /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx && \
     chmod -R 755 /usr/share/nginx/html /etc/nginx /config
 
 # Add healthcheck that verifies both domains
@@ -104,12 +190,12 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Label the image with metadata
 LABEL org.opencontainers.image.title="${SERVICE_NAME}" \
       org.opencontainers.image.version="${APP_VERSION}" \
-      org.opencontainers.image.description="Nginx web server with custom configuration" \
+      org.opencontainers.image.description="Custom Nginx web server compiled from source" \
       org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
       org.opencontainers.image.environment="${APP_ENV}"
 
 # Expose the service port
 EXPOSE ${SERVICE_PORT}
 
-# Run Nginx in the foreground (so Docker can track the process)
-CMD ["nginx", "-g", "daemon off;"]
+# Run Nginx with configuration for read-only filesystem
+CMD ["nginx", "-g", "daemon off; error_log /dev/stderr; pid /run/nginx/nginx.pid; load_module modules/ngx_http_image_filter_module.so;"]
