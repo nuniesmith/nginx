@@ -133,7 +133,7 @@ RUN mkdir -p /var/cache/nginx \
     /usr/share/nginx/html/health \
     /usr/share/nginx/html/honeybun.local/health \
     /usr/share/nginx/html/fks.local/health && \
-    chmod 1777 /var/cache/nginx /var/log/nginx /tmp/nginx && \
+    chmod 1777 /var/cache/nginx /var/log/nginx /tmp/nginx /etc/nginx/conf.d && \
     # Ensure subdirectories also have correct permissions
     mkdir -p /var/cache/nginx/client_temp \
              /var/cache/nginx/proxy_temp \
@@ -159,6 +159,9 @@ COPY --from=builder /build/conf.d/ /etc/nginx/conf.d/
 COPY --from=builder /build/includes/ /etc/nginx/includes/
 COPY --from=builder /build/mime.types.conf /etc/nginx/mime.types.conf
 COPY --from=builder /etc/nginx/mime.types /etc/nginx/mime.types
+
+# Fix permissions on config files right after copying them
+RUN chmod -R 666 /etc/nginx/conf.d/*.conf
 
 # Copy website content from builder stage
 COPY --from=builder /build/html/honeybun/ /usr/share/nginx/html/honeybun.local/
@@ -188,9 +191,9 @@ ls -la /etc/nginx/conf.d/
 
 # Fix any syntax issues in config files
 echo "Fixing any syntax issues in configuration files..."
-find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}#/}\n#/g' {} \;
-find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/server {/server {\n/g' {} \;
-find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}/}\n/g' {} \;
+find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}#/}\n#/g' {} \; || echo "Warning: Could not fix syntax in configuration files, continuing anyway"
+find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/server {/server {\n/g' {} \; || echo "Warning: Could not fix syntax in configuration files, continuing anyway"
+find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}/}\n/g' {} \; || echo "Warning: Could not fix syntax in configuration files, continuing anyway"
 
 # Test the configuration
 echo "Testing Nginx configuration..."
