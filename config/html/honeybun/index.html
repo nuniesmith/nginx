@@ -4,20 +4,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Honeybun Network Dashboard - Access all your home network services from one place">
+    <meta name="theme-color" content="#3a86ff">
     <title>Honeybun Dashboard</title>
     <style>
         :root {
             --primary-color: #3a86ff;
+            --primary-hover: #1a66df;
             --secondary-color: #8338ec;
             --accent-color: #ff006e;
             --background-color: #f8f9fa;
             --card-color: #ffffff;
             --text-color: #212529;
+            --text-muted: #6c757d;
             --border-radius: 8px;
             --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
         }
 
-        /* Style content - abbreviated for clarity */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: var(--background-color);
@@ -27,7 +37,159 @@
             line-height: 1.6;
         }
 
-        /* Rest of CSS styles... */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 15px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: var(--primary-color);
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+        }
+
+        .subtitle {
+            color: var(--secondary-color);
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .category {
+            margin-bottom: 40px;
+        }
+
+        .category-title {
+            color: var(--secondary-color);
+            border-bottom: 2px solid var(--secondary-color);
+            padding-bottom: 8px;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        .card {
+            background-color: var(--card-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            padding: 20px;
+            transition: var(--transition);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-title {
+            color: var(--primary-color);
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+        }
+
+        .card-description {
+            color: var(--text-muted);
+            margin-bottom: 15px;
+            flex-grow: 1;
+        }
+
+        .card-link {
+            display: block;
+            text-decoration: none;
+            color: #fff;
+            background-color: var(--primary-color);
+            font-weight: bold;
+            padding: 10px 0;
+            border-radius: var(--border-radius);
+            text-align: center;
+            transition: var(--transition);
+        }
+
+        .card-link:hover {
+            background-color: var(--primary-hover);
+        }
+
+        @media (max-width: 768px) {
+            .services-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .category-title {
+                font-size: 1.3rem;
+            }
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+            color: var(--text-muted);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-online {
+            background-color: #4CAF50;
+        }
+
+        .status-offline {
+            background-color: #F44336;
+        }
+
+        .search-container {
+            margin-bottom: 30px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: var(--border-radius);
+            font-size: 16px;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(58, 134, 255, 0.2);
+        }
+
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --background-color: #212529;
+                --card-color: #343a40;
+                --text-color: #f8f9fa;
+                --text-muted: #adb5bd;
+            }
+        }
     </style>
 </head>
 
@@ -36,10 +198,16 @@
         <header>
             <h1>Honeybun Network Dashboard</h1>
             <p class="subtitle">Your home services at a glance</p>
+            <div class="search-container">
+                <input type="text" id="search-input" class="search-input" placeholder="Search services..." aria-label="Search services">
+            </div>
         </header>
 
         <main id="app">
             <!-- Service categories will be dynamically inserted here -->
+            <div id="no-results" style="display: none; text-align: center; margin-top: 30px;">
+                <p>No services found matching your search.</p>
+            </div>
         </main>
 
         <footer>
@@ -48,25 +216,152 @@
     </div>
 
     <script>
-        // Service configuration with all your services
+        // Service configuration - easy to update
         const services = {
             media: {
                 title: "Media Services",
                 items: [
                     { name: "Emby", url: "http://emby.honeybun.local", description: "Media server for movies and TV shows" },
-                    // More services...
+                    { name: "Jellyfin", url: "http://jellyfin.honeybun.local", description: "Open source media server" },
+                    { name: "Plex", url: "http://plex.honeybun.local", description: "Streaming media server" },
+                    { name: "Audiobookshelf", url: "http://abs.honeybun.local", description: "Audiobook server" },
+                    { name: "YouTube Downloader", url: "http://youtube.honeybun.local", description: "Download videos from YouTube" }
                 ]
             },
-            // More categories...
+            books: {
+                title: "Books & Reading",
+                items: [
+                    { name: "Calibre", url: "http://calibre.honeybun.local", description: "E-book management" },
+                    { name: "Calibre Web", url: "http://calibreweb.honeybun.local", description: "Web interface for your Calibre library" }
+                ]
+            },
+            management: {
+                title: "Media Management",
+                items: [
+                    { name: "Sonarr", url: "http://sonarr.honeybun.local", description: "TV shows management" },
+                    { name: "Radarr", url: "http://radarr.honeybun.local", description: "Movies management" },
+                    { name: "Lidarr", url: "http://lidarr.honeybun.local", description: "Music management" },
+                    { name: "Readarr (Audiobooks)", url: "http://audiobooks.honeybun.local", description: "Audiobooks management" },
+                    { name: "Readarr (E-books)", url: "http://ebooks.honeybun.local", description: "E-books management" },
+                    { name: "FileBot", url: "http://filebot.honeybun.local", description: "File organization and renaming" }
+                ]
+            },
+            download: {
+                title: "Download Tools",
+                items: [
+                    { name: "qBittorrent", url: "http://qbt.honeybun.local", description: "Torrent client" },
+                    { name: "Jackett", url: "http://jackett.honeybun.local", description: "Torrent proxy" },
+                    { name: "Prowlarr", url: "http://prowlarr.honeybun.local", description: "Indexer management" }
+                ]
+            },
+            sync: {
+                title: "Syncthing Instances",
+                items: [
+                    { name: "Syncthing (Freddy)", url: "http://sync-freddy.honeybun.local", description: "File synchronization on Freddy" },
+                    { name: "Syncthing (Sullivan)", url: "http://sync-sullivan.honeybun.local", description: "File synchronization on Sullivan" },
+                    { name: "Syncthing (Desktop)", url: "http://sync-desktop.honeybun.local", description: "File synchronization on Desktop" },
+                    { name: "Syncthing (Oryx)", url: "http://sync-oryx.honeybun.local", description: "File synchronization on Oryx" }
+                ]
+            },
+            utility: {
+                title: "Utility Services",
+                items: [
+                    { name: "Home Assistant", url: "http://home.honeybun.local", description: "Home automation" },
+                    { name: "Wiki", url: "http://wiki.honeybun.local", description: "Knowledge base" },
+                    { name: "Duplicati", url: "http://duplicati.honeybun.local", description: "Backup solution" }
+                ]
+            }
         };
 
         // Function to render the services
-        function renderServices() {
-            // JavaScript functionality...
+        function renderServices(filter = '') {
+            const appContainer = document.getElementById('app');
+            let html = '';
+            let matchFound = false;
+
+            // Convert filter to lowercase for case-insensitive matching
+            const lowerFilter = filter.toLowerCase();
+
+            // Loop through each category
+            for (const [category, data] of Object.entries(services)) {
+                // Filter items based on search
+                const filteredItems = data.items.filter(item => 
+                    item.name.toLowerCase().includes(lowerFilter) || 
+                    item.description.toLowerCase().includes(lowerFilter)
+                );
+
+                // Only render category if it has matching items
+                if (filteredItems.length > 0) {
+                    matchFound = true;
+                    html += `
+                        <div class="category">
+                            <h2 class="category-title">${data.title}</h2>
+                            <div class="services-grid">
+                    `;
+
+                    // Loop through filtered items in this category
+                    filteredItems.forEach(item => {
+                        html += `
+                            <div class="card">
+                                <h3 class="card-title">${item.name}</h3>
+                                <p class="card-description">${item.description}</p>
+                                <a href="${item.url}" class="card-link" target="_blank">Open ${item.name}</a>
+                            </div>
+                        `;
+                    });
+
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // Handle no results case
+            const noResultsElement = document.getElementById('no-results');
+            if (!matchFound && filter) {
+                noResultsElement.style.display = 'block';
+                appContainer.innerHTML = '';
+            } else {
+                noResultsElement.style.display = 'none';
+                appContainer.innerHTML = html;
+            }
+
+            // Update the last updated time
+            updateLastUpdated();
+        }
+
+        // Initialize search functionality
+        function initSearch() {
+            const searchInput = document.getElementById('search-input');
+            
+            searchInput.addEventListener('input', (e) => {
+                renderServices(e.target.value.trim());
+            });
+
+            // Add keyboard shortcut to focus search (Ctrl+K or CMD+K)
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                    e.preventDefault();
+                    searchInput.focus();
+                }
+            });
+        }
+
+        // Function to update last updated time
+        function updateLastUpdated() {
+            const now = new Date();
+            document.getElementById('last-updated').textContent = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
         }
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', renderServices);
+        document.addEventListener('DOMContentLoaded', () => {
+            renderServices();
+            initSearch();
+            
+            // Refresh the time every hour
+            setInterval(updateLastUpdated, 3600000);
+        });
     </script>
 </body>
 
