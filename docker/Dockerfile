@@ -21,7 +21,6 @@ RUN apk add --no-cache \
     automake
 
 # Create nginx user and group in builder stage
-# This is needed for the nginx -t configuration test
 RUN addgroup -S nginx && \
     adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx -u 101 nginx
 
@@ -40,7 +39,7 @@ RUN ./auto/configure \
     --conf-path=/etc/nginx/nginx.conf \
     --error-log-path=/var/log/nginx/error.log \
     --http-log-path=/var/log/nginx/access.log \
-    --pid-path=/run/nginx/nginx.pid \
+    --pid-path=/var/run/nginx.pid \
     --lock-path=/var/run/nginx.lock \
     --http-client-body-temp-path=/var/cache/nginx/client_temp \
     --http-proxy-temp-path=/var/cache/nginx/proxy_temp \
@@ -109,7 +108,7 @@ RUN mkdir -p /build/conf.d && \
 RUN mkdir -p /usr/lib/nginx/modules
 
 # Modify the nginx.conf to use the new PID path
-RUN sed -i 's|pid /var/run/nginx.pid;|pid /run/nginx/nginx.pid;|' /build/nginx.conf
+RUN sed -i 's|pid /var/run/nginx.pid;|pid /var/run/nginx.pid;|' /build/nginx.conf
 
 # Test nginx config
 RUN nginx -c /build/nginx.conf -t
@@ -150,7 +149,7 @@ RUN addgroup -S nginx && \
     addgroup -S nginx-app && \
     adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx-app -u 1001 nginx-app
 
-# Create required directories with correct permissions for read-only filesystem
+# Create required directories with correct permissions
 RUN mkdir -p /var/cache/nginx \
     /var/log/nginx \
     /etc/nginx/includes \
@@ -163,10 +162,6 @@ RUN mkdir -p /var/cache/nginx \
     /usr/share/nginx/html/fks.local/health \
     /usr/share/nginx/html/fks.local/metrics/health \
     /usr/share/nginx/html/fks.local/db/health \
-    /config/html/honeybun \
-    /config/html/fks \
-    /config/html/metrics \
-    /config/html/db \
     /tmp/nginx
 
 # Copy compiled Nginx binary and libraries from builder
@@ -183,8 +178,26 @@ COPY --from=builder /build/includes/ /etc/nginx/includes/
 COPY --from=builder /build/mime.types.conf /etc/nginx/mime.types.conf
 COPY --from=builder /etc/nginx/mime.types /etc/nginx/mime.types
 
-# Create empty default.conf if it doesn't exist
-RUN touch /etc/nginx/conf.d/default.conf
+# Create a simple server block for honeybun.local
+RUN echo 'server {\n\
+    listen 80;\n\
+    server_name honeybun.local;\n\
+    root /usr/share/nginx/html/honeybun.local;\n\
+    index index.html;\n\
+    access_log /var/log/nginx/honeybun.access.log;\n\
+    error_log /var/log/nginx/honeybun.error.log;\n\
+\n\
+    location = /health {\n\
+        try_files /health/index.html =200;\n\
+        add_header Content-Type text/html;\n\
+        add_header Cache-Control "no-cache, no-store, must-revalidate";\n\
+        add_header Pragma "no-cache";\n\
+    }\n\
+\n\
+    location / {\n\
+        try_files $uri $uri/ /index.html =404;\n\
+    }\n\
+}' > /etc/nginx/conf.d/honeybun.conf
 
 # Copy website content from builder stage
 COPY --from=builder /build/html/honeybun/ /usr/share/nginx/html/honeybun.local/
@@ -198,19 +211,20 @@ RUN echo "OK" > /usr/share/nginx/html/honeybun.local/health/index.html && \
     mkdir -p /usr/share/nginx/html/health && \
     echo "OK" > /usr/share/nginx/html/health/index.html
 
-# Create symbolic links to keep original directory structure
-RUN ln -sf /usr/share/nginx/html/honeybun.local /config/html/honeybun && \
-    ln -sf /usr/share/nginx/html/fks.local /config/html/fks
-
-# Configure for read-only filesystem with writable areas
-RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /var/run /tmp/nginx && \
-    chown -R nginx-app:nginx-app /usr/share/nginx/html && \
-    chmod -R 755 /usr/share/nginx/html /etc/nginx /config && \
-    chmod 777 /run/nginx
-
 # Setup writable temporary directories for read-only filesystem
-# These volumes must be defined before the permissions setup in entrypoint
 VOLUME ["/var/cache/nginx", "/var/log/nginx", "/run/nginx", "/tmp/nginx"]
+
+# Pre-create the PID directory and make it writable by nginx-app
+RUN mkdir -p /var/run && \
+    touch /var/run/nginx.pid && \
+    chown -R nginx-app:nginx-app /var/run/nginx.pid /var/run && \
+    chmod 777 /var/run
+
+# Configure file permissions correctly
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx && \
+    chown -R nginx-app:nginx-app /usr/share/nginx/html && \
+    chmod -R 755 /usr/share/nginx/html /etc/nginx && \
+    chmod 777 /run/nginx /var/run
 
 # Add healthcheck that verifies all domains
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -218,28 +232,30 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
         curl --fail -H "Host: honeybun.local" http://localhost:${SERVICE_PORT}/health && \
         curl --fail -H "Host: fks.local" http://localhost:${SERVICE_PORT}/health || exit 1
 
-# Label the image with metadata
-LABEL org.opencontainers.image.title="${SERVICE_NAME}" \
-      org.opencontainers.image.version="${APP_VERSION}" \
-      org.opencontainers.image.description="Custom Nginx web server compiled from GitHub source" \
-      org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      org.opencontainers.image.environment="${APP_ENV}"
-
 # Setup entrypoint script to handle permissions and startup
 COPY --chown=root:root <<-"EOF" /entrypoint.sh
 #!/bin/sh
 set -e
 
-# Create the PID directory with proper permissions
-mkdir -p /run/nginx
-# Try to set permissions but don't fail if it doesn't work
-chmod 777 /run/nginx || echo "Warning: Could not set permissions on /run/nginx - continuing anyway"
-
-# Switch to nginx user if running as root and requested
-if [ "$(id -u)" = "0" ] && [ "${RUN_AS_NON_ROOT}" = "true" ]; then
-    echo "Switching to non-root nginx user..."
-    exec su-exec nginx nginx -g "daemon off;"
+# If running as root, we can fix permissions, otherwise skip permission fixing
+if [ "$(id -u)" = "0" ]; then
+    # Create the PID directory with proper permissions
+    mkdir -p /var/run
+    mkdir -p /run/nginx
+    touch /var/run/nginx.pid
+    chown -R nginx-app:nginx-app /var/run/nginx.pid /var/run
+    chmod 777 /run/nginx /var/run
+    
+    # If RUN_AS_NON_ROOT is true, switch to nginx-app user
+    if [ "${RUN_AS_NON_ROOT}" = "true" ]; then
+        echo "Switching to non-root nginx-app user..."
+        exec su-exec nginx-app nginx -g "daemon off;"
+    else
+        echo "Starting nginx as root..."
+        exec nginx -g "daemon off;"
+    fi
 else
+    # Running as non-root already
     echo "Starting nginx as $(id -un)..."
     exec nginx -g "daemon off;"
 fi
@@ -250,5 +266,5 @@ RUN chmod +x /entrypoint.sh
 # Expose the service port
 EXPOSE ${SERVICE_PORT}
 
-# Run entrypoint script - starts as root to set permissions, may switch to nginx user
+# Run entrypoint script
 ENTRYPOINT ["/entrypoint.sh"]
