@@ -26,6 +26,9 @@ RUN git clone https://github.com/nginx/nginx.git && \
     cd nginx && \
     git checkout release-1.26.0
 
+# Create modules directory
+RUN mkdir -p /usr/lib/nginx/modules
+
 # Configure and compile Nginx with desired modules
 WORKDIR /src/nginx
 RUN ./auto/configure \
@@ -101,6 +104,10 @@ COPY ./config/nginx/conf.d /build/conf.d
 # Modify the nginx.conf to use the new PID path
 RUN sed -i 's|pid /var/run/nginx.pid;|pid /tmp/nginx/nginx.pid;|' /build/nginx.conf
 
+# Ensure the modules directory exists and has at least an empty file
+RUN mkdir -p /usr/lib/nginx/modules && \
+    touch /usr/lib/nginx/modules/.keep
+
 ###############################
 # Stage 2: Runtime
 ###############################
@@ -128,6 +135,8 @@ RUN mkdir -p /var/cache/nginx \
 
 # Copy compiled Nginx binary and libraries from builder
 COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
+
+# Copy modules directory from builder
 COPY --from=builder /usr/lib/nginx/modules/ /usr/lib/nginx/modules/
 
 # Copy configurations from the builder stage
@@ -168,9 +177,15 @@ chmod 777 /tmp/nginx /var/log/nginx /var/cache/nginx
 echo "Nginx configuration files:"
 ls -la /etc/nginx/conf.d/
 
+# Fix any syntax issues in config files
+echo "Fixing any syntax issues in configuration files..."
+find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}#/}\n#/g' {} \;
+find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/server {/server {\n/g' {} \;
+find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/}/}\n/g' {} \;
+
 # Test the configuration
 echo "Testing Nginx configuration..."
-nginx -t || { echo "Configuration test failed!"; cat /etc/nginx/conf.d/*; exit 1; }
+nginx -t || { echo "Configuration test failed!"; find /etc/nginx/conf.d -type f -name "*.conf" -exec cat {} \; ; exit 1; }
 
 # Start Nginx in foreground mode
 echo "Starting nginx..."
