@@ -1,11 +1,7 @@
 ###############################
-# Stage 1: Build Nginx from source
+# Stage 1: Build Nginx from source using GitHub
 ###############################
 FROM alpine:latest AS builder
-
-# Nginx version
-ARG NGINX_VERSION=1.26.0
-ARG NGINX_GPG_KEYS=13C82A63B603576156E30A4EA0EA981B66B0D967
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -17,30 +13,34 @@ RUN apk add --no-cache \
     zlib-dev \
     linux-headers \
     curl \
-    gnupg \
+    git \
     libxslt-dev \
     gd-dev \
-    perl-dev
+    perl-dev \
+    autoconf \
+    automake
 
-# Download and verify Nginx source
+# Create nginx user and group in builder stage
+# This is needed for the nginx -t configuration test
+RUN addgroup -S nginx && \
+    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx -u 101 nginx
+
+# Clone Nginx from GitHub
 WORKDIR /src
-RUN wget "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" && \
-    wget "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz.asc" && \
-    mkdir -p /root/.gnupg && \
-    gpg --keyserver keyserver.ubuntu.com --recv-keys "$NGINX_GPG_KEYS" && \
-    gpg --verify nginx-${NGINX_VERSION}.tar.gz.asc && \
-    tar -zxvf nginx-${NGINX_VERSION}.tar.gz
+RUN git clone https://github.com/nginx/nginx.git && \
+    cd nginx && \
+    git checkout release-1.26.0
 
 # Configure and compile Nginx with desired modules
-WORKDIR /src/nginx-${NGINX_VERSION}
-RUN ./configure \
+WORKDIR /src/nginx
+RUN ./auto/configure \
     --prefix=/etc/nginx \
     --sbin-path=/usr/sbin/nginx \
     --modules-path=/usr/lib/nginx/modules \
     --conf-path=/etc/nginx/nginx.conf \
     --error-log-path=/var/log/nginx/error.log \
     --http-log-path=/var/log/nginx/access.log \
-    --pid-path=/var/run/nginx.pid \
+    --pid-path=/run/nginx/nginx.pid \
     --lock-path=/var/run/nginx.lock \
     --http-client-body-temp-path=/var/cache/nginx/client_temp \
     --http-proxy-temp-path=/var/cache/nginx/proxy_temp \
@@ -77,6 +77,14 @@ RUN ./configure \
     make -j$(nproc) && \
     make install
 
+# Create required directories for testing
+RUN mkdir -p /var/cache/nginx \
+    /var/log/nginx \
+    /run/nginx \
+    /var/run \
+    /tmp/nginx && \
+    chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /var/run /tmp/nginx
+
 # Create test directory for verifying config
 WORKDIR /build
 COPY ./config/nginx/nginx.conf /build/nginx.conf
@@ -97,6 +105,12 @@ COPY ./config/nginx/maps.conf /etc/nginx/maps.conf
 RUN mkdir -p /build/conf.d && \
     touch /build/conf.d/default.conf
 
+# Verify the modules directory exists (create if not)
+RUN mkdir -p /usr/lib/nginx/modules
+
+# Modify the nginx.conf to use the new PID path
+RUN sed -i 's|pid /var/run/nginx.pid;|pid /run/nginx/nginx.pid;|' /build/nginx.conf
+
 # Test nginx config
 RUN nginx -c /build/nginx.conf -t
 
@@ -110,12 +124,14 @@ ARG SERVICE_PORT=80
 ARG SERVICE_NAME="nginx-web"
 ARG APP_VERSION=1.0.0
 ARG APP_ENV=production
+ARG RUN_AS_NON_ROOT=false
 
 # Set runtime environment variables
 ENV SERVICE_NAME=${SERVICE_NAME} \
     SERVICE_PORT=${SERVICE_PORT} \
     APP_VERSION=${APP_VERSION} \
-    APP_ENV=${APP_ENV}
+    APP_ENV=${APP_ENV} \
+    RUN_AS_NON_ROOT=${RUN_AS_NON_ROOT}
 
 # Install runtime dependencies
 RUN apk add --no-cache \
@@ -125,11 +141,14 @@ RUN apk add --no-cache \
     inotify-tools \
     pcre \
     libssl3 \
-    libgcc
+    libgcc \
+    su-exec
 
-# Create a dedicated non-root user for Nginx
+# Create dedicated non-root users for Nginx
 RUN addgroup -S nginx && \
-    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx -u 101 nginx
+    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx -u 101 nginx && \
+    addgroup -S nginx-app && \
+    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx-app -u 1001 nginx-app
 
 # Create required directories with correct permissions for read-only filesystem
 RUN mkdir -p /var/cache/nginx \
@@ -137,6 +156,8 @@ RUN mkdir -p /var/cache/nginx \
     /etc/nginx/includes \
     /etc/nginx/conf.d \
     /run/nginx \
+    /var/run \
+    /usr/lib/nginx/modules \
     /usr/share/nginx/html/health \
     /usr/share/nginx/html/honeybun.local/health \
     /usr/share/nginx/html/fks.local/health \
@@ -150,8 +171,9 @@ RUN mkdir -p /var/cache/nginx \
 
 # Copy compiled Nginx binary and libraries from builder
 COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
-COPY --from=builder /etc/nginx/modules/ /etc/nginx/modules/
-COPY --from=builder /etc/nginx/mime.types /etc/nginx/mime.types
+
+# Copy modules from the correct location (if they exist)
+COPY --from=builder /usr/lib/nginx/modules/ /usr/lib/nginx/modules/
 
 # Copy configurations from the builder stage
 COPY --from=builder /build/nginx.conf /etc/nginx/nginx.conf
@@ -159,6 +181,7 @@ COPY --from=builder /build/maps.conf /etc/nginx/maps.conf
 COPY --from=builder /build/conf.d/ /etc/nginx/conf.d/
 COPY --from=builder /build/includes/ /etc/nginx/includes/
 COPY --from=builder /build/mime.types.conf /etc/nginx/mime.types.conf
+COPY --from=builder /etc/nginx/mime.types /etc/nginx/mime.types
 
 # Create empty default.conf if it doesn't exist
 RUN touch /etc/nginx/conf.d/default.conf
@@ -171,17 +194,25 @@ COPY --from=builder /build/html/fks/ /usr/share/nginx/html/fks.local/
 RUN echo "OK" > /usr/share/nginx/html/honeybun.local/health/index.html && \
     echo "OK" > /usr/share/nginx/html/fks.local/health/index.html && \
     echo "OK" > /usr/share/nginx/html/fks.local/metrics/health/index.html && \
-    echo "OK" > /usr/share/nginx/html/fks.local/db/health/index.html
+    echo "OK" > /usr/share/nginx/html/fks.local/db/health/index.html && \
+    mkdir -p /usr/share/nginx/html/health && \
+    echo "OK" > /usr/share/nginx/html/health/index.html
 
 # Create symbolic links to keep original directory structure
 RUN ln -sf /usr/share/nginx/html/honeybun.local /config/html/honeybun && \
     ln -sf /usr/share/nginx/html/fks.local /config/html/fks
 
 # Configure for read-only filesystem with writable areas
-RUN chown -R nginx-app:nginx-app /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx && \
-    chmod -R 755 /usr/share/nginx/html /etc/nginx /config
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /var/run /tmp/nginx && \
+    chown -R nginx-app:nginx-app /usr/share/nginx/html && \
+    chmod -R 755 /usr/share/nginx/html /etc/nginx /config && \
+    chmod 777 /run/nginx
 
-# Add healthcheck that verifies both domains
+# Setup writable temporary directories for read-only filesystem
+# These volumes must be defined before the permissions setup in entrypoint
+VOLUME ["/var/cache/nginx", "/var/log/nginx", "/run/nginx", "/tmp/nginx"]
+
+# Add healthcheck that verifies all domains
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl --fail -H "Host: localhost" http://localhost:${SERVICE_PORT}/health && \
         curl --fail -H "Host: honeybun.local" http://localhost:${SERVICE_PORT}/health && \
@@ -190,12 +221,34 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Label the image with metadata
 LABEL org.opencontainers.image.title="${SERVICE_NAME}" \
       org.opencontainers.image.version="${APP_VERSION}" \
-      org.opencontainers.image.description="Custom Nginx web server compiled from source" \
+      org.opencontainers.image.description="Custom Nginx web server compiled from GitHub source" \
       org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
       org.opencontainers.image.environment="${APP_ENV}"
+
+# Setup entrypoint script to handle permissions and startup
+COPY --chown=root:root <<-"EOF" /entrypoint.sh
+#!/bin/sh
+set -e
+
+# Create the PID directory with proper permissions
+mkdir -p /run/nginx
+# Try to set permissions but don't fail if it doesn't work
+chmod 777 /run/nginx || echo "Warning: Could not set permissions on /run/nginx - continuing anyway"
+
+# Switch to nginx user if running as root and requested
+if [ "$(id -u)" = "0" ] && [ "${RUN_AS_NON_ROOT}" = "true" ]; then
+    echo "Switching to non-root nginx user..."
+    exec su-exec nginx nginx -g "daemon off;"
+else
+    echo "Starting nginx as $(id -un)..."
+    exec nginx -g "daemon off;"
+fi
+EOF
+
+RUN chmod +x /entrypoint.sh
 
 # Expose the service port
 EXPOSE ${SERVICE_PORT}
 
-# Run Nginx with configuration for read-only filesystem
-CMD ["nginx", "-g", "daemon off; error_log /dev/stderr; pid /run/nginx/nginx.pid; load_module modules/ngx_http_image_filter_module.so;"]
+# Run entrypoint script - starts as root to set permissions, may switch to nginx user
+ENTRYPOINT ["/entrypoint.sh"]
