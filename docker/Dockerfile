@@ -122,7 +122,8 @@ RUN apk add --no-cache \
     libssl3 \
     libgcc
 
-# Create required directories with correct permissions
+# Create required directories with correct permissions WHILE STILL ROOT
+# Using 1777 (sticky bit) to ensure only owners can delete their files
 RUN mkdir -p /var/cache/nginx \
     /var/log/nginx \
     /etc/nginx/includes \
@@ -131,7 +132,19 @@ RUN mkdir -p /var/cache/nginx \
     /usr/lib/nginx/modules \
     /usr/share/nginx/html/health \
     /usr/share/nginx/html/honeybun.local/health \
-    /usr/share/nginx/html/fks.local/health
+    /usr/share/nginx/html/fks.local/health && \
+    chmod 1777 /var/cache/nginx /var/log/nginx /tmp/nginx && \
+    # Ensure subdirectories also have correct permissions
+    mkdir -p /var/cache/nginx/client_temp \
+             /var/cache/nginx/proxy_temp \
+             /var/cache/nginx/fastcgi_temp \
+             /var/cache/nginx/uwsgi_temp \
+             /var/cache/nginx/scgi_temp && \
+    chmod 1777 /var/cache/nginx/client_temp \
+               /var/cache/nginx/proxy_temp \
+               /var/cache/nginx/fastcgi_temp \
+               /var/cache/nginx/uwsgi_temp \
+               /var/cache/nginx/scgi_temp
 
 # Copy compiled Nginx binary and libraries from builder
 COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
@@ -157,21 +170,17 @@ RUN echo "OK" > /usr/share/nginx/html/honeybun.local/health/index.html && \
     mkdir -p /usr/share/nginx/html/health && \
     echo "OK" > /usr/share/nginx/html/health/index.html
 
-# Ensure directories are writable
-RUN chmod -R 777 /var/cache/nginx /var/log/nginx /tmp/nginx /usr/share/nginx/html
+# Ensure HTML directories are writable
+RUN chmod -R 777 /usr/share/nginx/html
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl --fail http://localhost/health || exit 1
 
-# Setup entrypoint script
+# Setup entrypoint script that doesn't try to change permissions
 COPY --chown=root:root <<-"EOF" /entrypoint.sh
 #!/bin/sh
 set -e
-
-# Create necessary directories
-mkdir -p /tmp/nginx /var/log/nginx /var/cache/nginx
-chmod 777 /tmp/nginx /var/log/nginx /var/cache/nginx
 
 # Display all config files for debugging
 echo "Nginx configuration files:"
