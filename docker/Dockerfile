@@ -104,6 +104,9 @@ COPY ./config/nginx/maps.conf /etc/nginx/maps.conf
 RUN mkdir -p /build/conf.d && \
     touch /build/conf.d/default.conf
 
+# Fix any configuration files with special characters
+RUN find /build/conf.d -type f -name "*.conf" -exec sed -i 's/\*//g' {} \;
+
 # Verify the modules directory exists (create if not)
 RUN mkdir -p /usr/lib/nginx/modules
 
@@ -123,7 +126,7 @@ ARG SERVICE_PORT=80
 ARG SERVICE_NAME="nginx-web"
 ARG APP_VERSION=1.0.0
 ARG APP_ENV=production
-ARG RUN_AS_NON_ROOT=false
+ARG RUN_AS_NON_ROOT=true
 
 # Set runtime environment variables
 ENV SERVICE_NAME=${SERVICE_NAME} \
@@ -178,26 +181,8 @@ COPY --from=builder /build/includes/ /etc/nginx/includes/
 COPY --from=builder /build/mime.types.conf /etc/nginx/mime.types.conf
 COPY --from=builder /etc/nginx/mime.types /etc/nginx/mime.types
 
-# Create a simple server block for honeybun.local
-RUN echo 'server {\n\
-    listen 80;\n\
-    server_name honeybun.local;\n\
-    root /usr/share/nginx/html/honeybun.local;\n\
-    index index.html;\n\
-    access_log /var/log/nginx/honeybun.access.log;\n\
-    error_log /var/log/nginx/honeybun.error.log;\n\
-\n\
-    location = /health {\n\
-        try_files /health/index.html =200;\n\
-        add_header Content-Type text/html;\n\
-        add_header Cache-Control "no-cache, no-store, must-revalidate";\n\
-        add_header Pragma "no-cache";\n\
-    }\n\
-\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html =404;\n\
-    }\n\
-}' > /etc/nginx/conf.d/honeybun.conf
+# Remove any special characters from configuration files
+RUN find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/\*//g' {} \;
 
 # Copy website content from builder stage
 COPY --from=builder /build/html/honeybun/ /usr/share/nginx/html/honeybun.local/
@@ -211,6 +196,10 @@ RUN echo "OK" > /usr/share/nginx/html/honeybun.local/health/index.html && \
     mkdir -p /usr/share/nginx/html/health && \
     echo "OK" > /usr/share/nginx/html/health/index.html
 
+# Create errors directory and add 404 page
+RUN mkdir -p /usr/share/nginx/html/honeybun.local/errors && \
+    echo "<html><body><h1>404 - Not Found</h1></body></html>" > /usr/share/nginx/html/honeybun.local/errors/404.html
+
 # Setup writable temporary directories for read-only filesystem
 VOLUME ["/var/cache/nginx", "/var/log/nginx", "/run/nginx", "/tmp/nginx"]
 
@@ -221,9 +210,10 @@ RUN mkdir -p /var/run && \
     chmod 777 /var/run
 
 # Configure file permissions correctly
-RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx && \
-    chown -R nginx-app:nginx-app /usr/share/nginx/html && \
-    chmod -R 755 /usr/share/nginx/html /etc/nginx && \
+RUN chown -R nginx-app:nginx-app /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx /usr/share/nginx/html && \
+    chmod -R 755 /usr/share/nginx/html && \
+    chmod -R 755 /etc/nginx && \
+    chmod 775 /var/log/nginx && \
     chmod 777 /run/nginx /var/run
 
 # Add healthcheck that verifies all domains
@@ -237,28 +227,24 @@ COPY --chown=root:root <<-"EOF" /entrypoint.sh
 #!/bin/sh
 set -e
 
-# If running as root, we can fix permissions, otherwise skip permission fixing
-if [ "$(id -u)" = "0" ]; then
-    # Create the PID directory with proper permissions
-    mkdir -p /var/run
-    mkdir -p /run/nginx
-    touch /var/run/nginx.pid
-    chown -R nginx-app:nginx-app /var/run/nginx.pid /var/run
-    chmod 777 /run/nginx /var/run
-    
-    # If RUN_AS_NON_ROOT is true, switch to nginx-app user
-    if [ "${RUN_AS_NON_ROOT}" = "true" ]; then
-        echo "Switching to non-root nginx-app user..."
-        exec su-exec nginx-app nginx -g "daemon off;"
-    else
-        echo "Starting nginx as root..."
-        exec nginx -g "daemon off;"
-    fi
-else
-    # Running as non-root already
-    echo "Starting nginx as $(id -un)..."
-    exec nginx -g "daemon off;"
-fi
+# Always ensure proper directory permissions
+mkdir -p /var/run /run/nginx /var/log/nginx /var/cache/nginx
+touch /var/run/nginx.pid
+chown -R nginx-app:nginx-app /var/run/nginx.pid /var/run /var/log/nginx /var/cache/nginx
+chmod 777 /run/nginx /var/run
+chmod 775 /var/log/nginx
+
+# List config files and check for any issues with formatting
+echo "Nginx configuration files:"
+ls -la /etc/nginx/conf.d/
+
+# Test configuration before starting
+echo "Testing Nginx configuration..."
+nginx -t || { echo "Configuration test failed!"; cat /etc/nginx/conf.d/*; exit 1; }
+
+# Use non-root user by default to enhance security
+echo "Starting nginx as nginx-app..."
+exec su-exec nginx-app nginx -g "daemon off;"
 EOF
 
 RUN chmod +x /entrypoint.sh
