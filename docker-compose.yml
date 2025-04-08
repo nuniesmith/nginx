@@ -14,9 +14,9 @@ services:
       - NGINX_PORT=${NGINX_PORT:-80}
     ports:
       - "${NGINX_PORT:-80}:${NGINX_PORT:-80}"
-    volumes:
-      - nginx_logs:/var/log/nginx
-      - nginx_cache:/var/cache/nginx
+    #volumes:
+      #- nginx_logs:/var/log/nginx
+      #- nginx_cache:/var/cache/nginx
     user: "1001:1001"
     healthcheck:
       test: ${NGINX_HEALTHCHECK_CMD:-["CMD-SHELL", "curl -f http://localhost:${NGINX_PORT:-80}/health || exit 1"]}
