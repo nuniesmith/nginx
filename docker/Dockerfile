@@ -39,8 +39,8 @@ RUN ./auto/configure \
     --conf-path=/etc/nginx/nginx.conf \
     --error-log-path=/var/log/nginx/error.log \
     --http-log-path=/var/log/nginx/access.log \
-    --pid-path=/var/run/nginx.pid \
-    --lock-path=/var/run/nginx.lock \
+    --pid-path=/tmp/nginx/nginx.pid \
+    --lock-path=/tmp/nginx/nginx.lock \
     --http-client-body-temp-path=/var/cache/nginx/client_temp \
     --http-proxy-temp-path=/var/cache/nginx/proxy_temp \
     --http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp \
@@ -80,9 +80,9 @@ RUN ./auto/configure \
 RUN mkdir -p /var/cache/nginx \
     /var/log/nginx \
     /run/nginx \
-    /var/run \
-    /tmp/nginx && \
-    chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /var/run /tmp/nginx
+    /tmp/nginx \
+    /var/run && \
+    chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx
 
 # Create test directory for verifying config
 WORKDIR /build
@@ -111,7 +111,7 @@ RUN find /build/conf.d -type f -name "*.conf" -exec sed -i 's/\*//g' {} \;
 RUN mkdir -p /usr/lib/nginx/modules
 
 # Modify the nginx.conf to use the new PID path
-RUN sed -i 's|pid /var/run/nginx.pid;|pid /var/run/nginx.pid;|' /build/nginx.conf
+RUN sed -i 's|pid /var/run/nginx.pid;|pid /tmp/nginx/nginx.pid;|' /build/nginx.conf
 
 # Test nginx config
 RUN nginx -c /build/nginx.conf -t
@@ -158,14 +158,13 @@ RUN mkdir -p /var/cache/nginx \
     /etc/nginx/includes \
     /etc/nginx/conf.d \
     /run/nginx \
-    /var/run \
+    /tmp/nginx \
     /usr/lib/nginx/modules \
     /usr/share/nginx/html/health \
     /usr/share/nginx/html/honeybun.local/health \
     /usr/share/nginx/html/fks.local/health \
     /usr/share/nginx/html/fks.local/metrics/health \
-    /usr/share/nginx/html/fks.local/db/health \
-    /tmp/nginx
+    /usr/share/nginx/html/fks.local/db/health
 
 # Copy compiled Nginx binary and libraries from builder
 COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
@@ -200,21 +199,17 @@ RUN echo "OK" > /usr/share/nginx/html/honeybun.local/health/index.html && \
 RUN mkdir -p /usr/share/nginx/html/honeybun.local/errors && \
     echo "<html><body><h1>404 - Not Found</h1></body></html>" > /usr/share/nginx/html/honeybun.local/errors/404.html
 
-# Setup writable temporary directories for read-only filesystem
-VOLUME ["/var/cache/nginx", "/var/log/nginx", "/run/nginx", "/tmp/nginx"]
+# Create and set permissions for PID directory in /tmp which should be writable
+RUN mkdir -p /tmp/nginx && \
+    chown -R nginx-app:nginx-app /tmp/nginx && \
+    chmod 755 /tmp/nginx
 
-# Pre-create the PID directory and make it writable by nginx-app
-RUN mkdir -p /var/run && \
-    touch /var/run/nginx.pid && \
-    chown -R nginx-app:nginx-app /var/run/nginx.pid /var/run && \
-    chmod 777 /var/run
-
-# Configure file permissions correctly
-RUN chown -R nginx-app:nginx-app /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx /usr/share/nginx/html && \
+# Configure file permissions correctly - avoid /var/run which might be read-only
+RUN chown -R nginx-app:nginx-app /var/cache/nginx /var/log/nginx /run/nginx /usr/share/nginx/html && \
     chmod -R 755 /usr/share/nginx/html && \
     chmod -R 755 /etc/nginx && \
     chmod 775 /var/log/nginx && \
-    chmod 777 /run/nginx /var/run
+    chmod 775 /run/nginx
 
 # Add healthcheck that verifies all domains
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -227,22 +222,16 @@ COPY --chown=root:root <<-"EOF" /entrypoint.sh
 #!/bin/sh
 set -e
 
-# Always ensure proper directory permissions
-mkdir -p /var/run /run/nginx /var/log/nginx /var/cache/nginx
-touch /var/run/nginx.pid
-chown -R nginx-app:nginx-app /var/run/nginx.pid /var/run /var/log/nginx /var/cache/nginx
-chmod 777 /run/nginx /var/run
-chmod 775 /var/log/nginx
-
-# List config files and check for any issues with formatting
-echo "Nginx configuration files:"
-ls -la /etc/nginx/conf.d/
+# Create directories that should be writable and reliable
+mkdir -p /tmp/nginx /var/log/nginx /var/cache/nginx /run/nginx
+chown -R nginx-app:nginx-app /tmp/nginx /var/log/nginx /var/cache/nginx /run/nginx
+chmod 755 /tmp/nginx /var/log/nginx /var/cache/nginx /run/nginx
 
 # Test configuration before starting
 echo "Testing Nginx configuration..."
-nginx -t || { echo "Configuration test failed!"; cat /etc/nginx/conf.d/*; exit 1; }
+su-exec nginx-app nginx -t || { echo "Configuration test failed!"; cat /etc/nginx/conf.d/*; exit 1; }
 
-# Use non-root user by default to enhance security
+# Start Nginx as non-root user
 echo "Starting nginx as nginx-app..."
 exec su-exec nginx-app nginx -g "daemon off;"
 EOF
