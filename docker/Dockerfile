@@ -20,10 +20,6 @@ RUN apk add --no-cache \
     autoconf \
     automake
 
-# Create nginx user and group in builder stage
-RUN addgroup -S nginx && \
-    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx -u 101 nginx
-
 # Clone Nginx from GitHub
 WORKDIR /src
 RUN git clone https://github.com/nginx/nginx.git && \
@@ -79,17 +75,13 @@ RUN ./auto/configure \
 # Create required directories for testing
 RUN mkdir -p /var/cache/nginx \
     /var/log/nginx \
-    /run/nginx \
-    /tmp/nginx \
-    /var/run && \
-    chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run/nginx /tmp/nginx
+    /tmp/nginx
 
-# Create test directory for verifying config
+# Create test directory
 WORKDIR /build
 COPY ./config/nginx/nginx.conf /build/nginx.conf
 COPY ./config/nginx/maps.conf /build/maps.conf
 COPY ./config/nginx/mime.types.conf /build/mime.types.conf
-COPY ./config/nginx/conf.d /build/conf.d
 COPY ./config/nginx/includes /build/includes
 
 # Copy website content for testing
@@ -100,76 +92,42 @@ COPY ./config/html/fks /build/html/fks
 COPY ./config/nginx/mime.types.conf /etc/nginx/mime.types.conf
 COPY ./config/nginx/maps.conf /etc/nginx/maps.conf
 
-# Create empty default.conf if it doesn't exist
-RUN mkdir -p /build/conf.d && \
-    touch /build/conf.d/default.conf
+# Create conf.d directory
+RUN mkdir -p /build/conf.d
 
-# Fix any configuration files with special characters
-RUN find /build/conf.d -type f -name "*.conf" -exec sed -i 's/\*//g' {} \;
-
-# Verify the modules directory exists (create if not)
-RUN mkdir -p /usr/lib/nginx/modules
+# Copy your conf files
+COPY ./config/nginx/conf.d /build/conf.d
 
 # Modify the nginx.conf to use the new PID path
 RUN sed -i 's|pid /var/run/nginx.pid;|pid /tmp/nginx/nginx.pid;|' /build/nginx.conf
-
-# Test nginx config
-RUN nginx -c /build/nginx.conf -t
 
 ###############################
 # Stage 2: Runtime
 ###############################
 FROM alpine:latest AS runtime
 
-# Build arguments
-ARG SERVICE_PORT=80
-ARG SERVICE_NAME="nginx-web"
-ARG APP_VERSION=1.0.0
-ARG APP_ENV=production
-ARG RUN_AS_NON_ROOT=true
-
-# Set runtime environment variables
-ENV SERVICE_NAME=${SERVICE_NAME} \
-    SERVICE_PORT=${SERVICE_PORT} \
-    APP_VERSION=${APP_VERSION} \
-    APP_ENV=${APP_ENV} \
-    RUN_AS_NON_ROOT=${RUN_AS_NON_ROOT}
-
 # Install runtime dependencies
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     curl \
-    inotify-tools \
     pcre \
     libssl3 \
-    libgcc \
-    su-exec
-
-# Create dedicated non-root users for Nginx
-RUN addgroup -S nginx && \
-    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx -u 101 nginx && \
-    addgroup -S nginx-app && \
-    adduser -S -D -H -h /nonexistent -s /sbin/nologin -G nginx-app -u 1001 nginx-app
+    libgcc
 
 # Create required directories with correct permissions
 RUN mkdir -p /var/cache/nginx \
     /var/log/nginx \
     /etc/nginx/includes \
     /etc/nginx/conf.d \
-    /run/nginx \
     /tmp/nginx \
     /usr/lib/nginx/modules \
     /usr/share/nginx/html/health \
     /usr/share/nginx/html/honeybun.local/health \
-    /usr/share/nginx/html/fks.local/health \
-    /usr/share/nginx/html/fks.local/metrics/health \
-    /usr/share/nginx/html/fks.local/db/health
+    /usr/share/nginx/html/fks.local/health
 
 # Copy compiled Nginx binary and libraries from builder
 COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
-
-# Copy modules from the correct location (if they exist)
 COPY --from=builder /usr/lib/nginx/modules/ /usr/lib/nginx/modules/
 
 # Copy configurations from the builder stage
@@ -180,66 +138,49 @@ COPY --from=builder /build/includes/ /etc/nginx/includes/
 COPY --from=builder /build/mime.types.conf /etc/nginx/mime.types.conf
 COPY --from=builder /etc/nginx/mime.types /etc/nginx/mime.types
 
-# Remove any special characters from configuration files
-RUN find /etc/nginx/conf.d -type f -name "*.conf" -exec sed -i 's/\*//g' {} \;
-
 # Copy website content from builder stage
 COPY --from=builder /build/html/honeybun/ /usr/share/nginx/html/honeybun.local/
 COPY --from=builder /build/html/fks/ /usr/share/nginx/html/fks.local/
 
-# Create simple health check pages for each domain and root
+# Create simple health check pages
 RUN echo "OK" > /usr/share/nginx/html/honeybun.local/health/index.html && \
     echo "OK" > /usr/share/nginx/html/fks.local/health/index.html && \
-    echo "OK" > /usr/share/nginx/html/fks.local/metrics/health/index.html && \
-    echo "OK" > /usr/share/nginx/html/fks.local/db/health/index.html && \
     mkdir -p /usr/share/nginx/html/health && \
     echo "OK" > /usr/share/nginx/html/health/index.html
 
-# Create errors directory and add 404 page
-RUN mkdir -p /usr/share/nginx/html/honeybun.local/errors && \
-    echo "<html><body><h1>404 - Not Found</h1></body></html>" > /usr/share/nginx/html/honeybun.local/errors/404.html
+# Ensure directories are writable
+RUN chmod -R 777 /var/cache/nginx /var/log/nginx /tmp/nginx /usr/share/nginx/html
 
-# Create and set permissions for PID directory in /tmp which should be writable
-RUN mkdir -p /tmp/nginx && \
-    chown -R nginx-app:nginx-app /tmp/nginx && \
-    chmod 755 /tmp/nginx
-
-# Configure file permissions correctly - avoid /var/run which might be read-only
-RUN chown -R nginx-app:nginx-app /var/cache/nginx /var/log/nginx /run/nginx /usr/share/nginx/html && \
-    chmod -R 755 /usr/share/nginx/html && \
-    chmod -R 755 /etc/nginx && \
-    chmod 775 /var/log/nginx && \
-    chmod 775 /run/nginx
-
-# Add healthcheck that verifies all domains
+# Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl --fail -H "Host: localhost" http://localhost:${SERVICE_PORT}/health && \
-        curl --fail -H "Host: honeybun.local" http://localhost:${SERVICE_PORT}/health && \
-        curl --fail -H "Host: fks.local" http://localhost:${SERVICE_PORT}/health || exit 1
+    CMD curl --fail http://localhost/health || exit 1
 
-# Setup entrypoint script to handle permissions and startup
+# Setup entrypoint script
 COPY --chown=root:root <<-"EOF" /entrypoint.sh
 #!/bin/sh
 set -e
 
-# Create directories that should be writable and reliable
-mkdir -p /tmp/nginx /var/log/nginx /var/cache/nginx /run/nginx
-chown -R nginx-app:nginx-app /tmp/nginx /var/log/nginx /var/cache/nginx /run/nginx
-chmod 755 /tmp/nginx /var/log/nginx /var/cache/nginx /run/nginx
+# Create necessary directories
+mkdir -p /tmp/nginx /var/log/nginx /var/cache/nginx
+chmod 777 /tmp/nginx /var/log/nginx /var/cache/nginx
 
-# Test configuration before starting
+# Display all config files for debugging
+echo "Nginx configuration files:"
+ls -la /etc/nginx/conf.d/
+
+# Test the configuration
 echo "Testing Nginx configuration..."
-su-exec nginx-app nginx -t || { echo "Configuration test failed!"; cat /etc/nginx/conf.d/*; exit 1; }
+nginx -t || { echo "Configuration test failed!"; cat /etc/nginx/conf.d/*; exit 1; }
 
-# Start Nginx as non-root user
-echo "Starting nginx as nginx-app..."
-exec su-exec nginx-app nginx -g "daemon off;"
+# Start Nginx in foreground mode
+echo "Starting nginx..."
+exec nginx -g "daemon off;"
 EOF
 
 RUN chmod +x /entrypoint.sh
 
-# Expose the service port
-EXPOSE ${SERVICE_PORT}
+# Expose port 80
+EXPOSE 80
 
 # Run entrypoint script
 ENTRYPOINT ["/entrypoint.sh"]
